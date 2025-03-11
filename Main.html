@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Portfolio Experience</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: 'Arial', sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      z-index: 1000;
+      transition: opacity 1s;
+    }
+    #loading-bar {
+      width: 300px;
+      height: 10px;
+      background-color: #333;
+      margin-top: 20px;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    #loading-bar-fill {
+      height: 100%;
+      width: 0%;
+      background-color: #4285F4;
+      transition: width 0.3s;
+    }
+    .info-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      z-index: 100;
+      text-align: center;
+    }
+    #speed-indicator {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      z-index: 100;
+    }
+    #house-info {
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      font-family: Arial, sans-serif;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.5s;
+      max-width: 400px;
+    }
+    #mobile-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      z-index: 100;
+    }
+    .control-button {
+      width: 60px;
+      height: 60px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 24px;
+      user-select: none;
+      touch-action: manipulation;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-screen">
+    <h1>Loading 3D Portfolio</h1>
+    <div id="loading-bar">
+      <div id="loading-bar-fill"></div>
+    </div>
+  </div>
+  
+  <div id="house-info"></div>
+  <div id="speed-indicator"></div>
+  
+  <div id="mobile-controls">
+    <div class="control-button" id="left-button">←</div>
+    <div class="control-button" id="right-button">→</div>
+  </div>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // Main application class
+    class PortfolioWorld {
+      constructor() {
+        // Scene setup
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setClearColor(0x87CEEB); // Sky blue
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(this.renderer.domElement);
+        
+        // Loading manager
+        this.setupLoadingManager();
+        
+        // Car controls
+        this.speed = 0;
+        this.position = 0;
+        this.acceleration = 0;
+        this.maxSpeed = 0.5;
+        this.friction = 0.98;
+        
+        // Active house tracking
+        this.activeHouse = null;
+        this.houseZoomLevel = 0;
+        
+        // Input handling
+        this.setupControls();
+        
+        // Start loading the world
+        this.loadWorld();
+      }
+      
+      setupLoadingManager() {
+        this.loadingManager = new THREE.LoadingManager();
+        
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingBarFill = document.getElementById('loading-bar-fill');
+        
+        this.loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+          const progress = itemsLoaded / itemsTotal * 100;
+          loadingBarFill.style.width = progress + '%';
+        };
+        
+        this.loadingManager.onLoad = () => {
+          // Start animation loop
+          loadingScreen.style.opacity = '0';
+          setTimeout(() => {
+            loadingScreen.style.display = 'none';
+            this.animate();
+          }, 1000);
+        };
+      }
+      
+      loadWorld() {
+        // Lighting
+        this.addLighting();
+        
+        // Create world elements
+        this.createGround();
+        this.createRoad();
+        this.createCar();
+        this.createHouses();
+        this.createSkybox();
+        
+        // Camera setup
+        this.camera.position.set(0, 2, 5);
+        this.camera.lookAt(0, 1, 0);
+        
+        // Handle window resize
+        window.addEventListener('resize', () => this.onWindowResize());
+        
+        // Add instructions
+        this.addInstructions();
+      }
+      
+      addLighting() {
+        // Ambient light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambientLight);
+        
+        // Directional light (sun)
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        const d = 30;
+        directionalLight.shadow.camera.left = -d;
+        directionalLight.shadow.camera.right = d;
+        directionalLight.shadow.camera.top = d;
+        directionalLight.shadow.camera.bottom = -d;
+        this.scene.add(directionalLight);
+      }
+      
+      createSkybox() {
+        // Simple sky background
+        const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+        const skyMaterial = new THREE.MeshBasicMaterial({
+          color: 0x87CEEB,
+          side: THREE.BackSide
+        });
+        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        this.scene.add(sky);
+        
+        // Add some clouds (simple shapes)
+        for (let i = 0; i < 20; i++) {
+          const cloudGeometry = new THREE.SphereGeometry(Math.random() * 5 + 3, 8, 8);
+          const cloudMaterial = new THREE.MeshBasicMaterial({
+            color: 0xFFFFFF,
+            transparent: true,
+            opacity: 0.8
+          });
+          const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+          
+          // Random positions
+          cloud.position.set(
+            Math.random() * 400 - 200,
+            Math.random() * 20 + 30,
+            Math.random() * 400 - 200
+          );
+          
+          this.scene.add(cloud);
+        }
+      }
+      
+      createGround() {
+        // Ground plane
+        const groundGeometry = new THREE.PlaneGeometry(1000, 1000);
+        const groundMaterial = new THREE.MeshStandardMaterial({
+          color: 0x7CFC00,
+          roughness: 0.8,
+        });
+        this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        this.ground.rotation.x = -Math.PI / 2;
+        this.ground.position.y = -0.1;
+        this.ground.receiveShadow = true;
+        this.scene.add(this.ground);
+        
+        // Add some random trees
+        for (let i = 0; i < 100; i++) {
+          const treeGroup = new THREE.Group();
+          
+          // Tree trunk
+          const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 1, 8);
+          const trunkMaterial = new THREE.MeshStandardMaterial({
+            color: 0x8B4513,
+            roughness: 0.9
+          });
+          const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+          trunk.position.y = 0.5;
+          trunk.castShadow = true;
+          treeGroup.add(trunk);
+          
+          // Tree top
+          const topGeometry = new THREE.ConeGeometry(1, 2, 8);
+          const topMaterial = new THREE.MeshStandardMaterial({
+            color: 0x228B22,
+            roughness: 0.8
+          });
+          const top = new THREE.Mesh(topGeometry, topMaterial);
+          top.position.y = 2;
+          top.castShadow = true;
+          treeGroup.add(top);
+          
+          // Position tree randomly
+          const angle = Math.random() * Math.PI * 2;
+          const distance = Math.random() * 50 + 20;
+          treeGroup.position.set(
+            Math.cos(angle) * distance,
+            0,
+            Math.sin(angle) * distance
+          );
+          
+          this.scene.add(treeGroup);
+        }
+      }
+      
+      createRoad() {
+        // Road
+        const roadGeometry = new THREE.PlaneGeometry(1000, 5);
+        const roadMaterial = new THREE.MeshStandardMaterial({
+          color: 0x333333,
+          roughness: 0.5,
+        });
+        this.road = new THREE.Mesh(roadGeometry, roadMaterial);
+        this.road.rotation.x = -Math.PI / 2;
+        this.road.position.y = -0.05;
+        this.road.receiveShadow = true;
+        this.scene.add(this.road);
+        
+        // Road markings
+        this.roadMarkings = [];
+        for (let i = -500; i < 500; i += 5) {
+          const markingGeometry = new THREE.PlaneGeometry(2, 0.3);
+          const markingMaterial = new THREE.MeshStandardMaterial({
+            color: 0xFFFFFF,
+          });
+          const marking = new THREE.Mesh(markingGeometry, markingMaterial);
+          marking.rotation.x = -Math.PI / 2;
+          marking.position.set(i, -0.04, 0);
+          this.scene.add(marking);
+          this.roadMarkings.push(marking);
+        }
+      }
+      
+      createCar() {
+        // Car body group
+        this.car = new THREE.Group();
+        
+        // Main body
+        const bodyGeometry = new THREE.BoxGeometry(2, 0.75, 1);
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+          color: 0xFF0000,
+          metalness: 0.5,
+          roughness: 0.2,
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.y = 0.5;
+        body.castShadow = true;
+        this.car.add(body);
+        
+        // Car roof
+        const roofGeometry = new THREE.BoxGeometry(1.2, 0.5, 0.9);
+        const roofMaterial = new THREE.MeshStandardMaterial({
+          color: 0x0066FF,
+          metalness: 0.5,
+          roughness: 0.2,
+        });
+        const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+        roof.position.set(-0.2, 1.1, 0);
+        roof.castShadow = true;
+        this.car.add(roof);
+        
+        // Wheels
+        const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+        const wheelMaterial = new THREE.MeshStandardMaterial({
+          color: 0x111111,
+          roughness: 0.9,
+        });
+        
+        // Front left wheel
+        const wheelFL = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheelFL.rotation.z = Math.PI / 2;
+        wheelFL.position.set(0.7, 0.3, 0.6);
+        this.car.add(wheelFL);
+        
+        // Front right wheel
+        const wheelFR = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheelFR.rotation.z = Math.PI / 2;
+        wheelFR.position.set(0.7, 0.3, -0.6);
+        this.car.add(wheelFR);
+        
+        // Rear left wheel
+        const wheelRL = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheelRL.rotation.z = Math.PI / 2;
+        wheelRL.position.set(-0.7, 0.3, 0.6);
+        this.car.add(wheelRL);
+        
+        // Rear right wheel
+        const wheelRR = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheelRR.rotation.z = Math.PI / 2;
+        wheelRR.position.set(-0.7, 0.3, -0.6);
+        this.car.add(wheelRR);
+        
+        // Headlights
+        const headlightGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+        const headlightMaterial = new THREE.MeshStandardMaterial({
+          color: 0xFFFF00,
+          emissive: 0xFFFF00,
+          emissiveIntensity: 0.5,
+        });
+        
+        // Left headlight
+        const headlightL = new THREE.Mesh(headlightGeometry, headlightMaterial);
+        headlightL.position.set(1.05, 0.5, 0.4);
+        this.car.add(headlightL);
+        
+        // Right headlight
+        const headlightR = new THREE.Mesh(headlightGeometry, headlightMaterial);
+        headlightR.position.set(1.05, 0.5, -0.4);
+        this.car.add(headlightR);
+        
+        // Headlight lights (actual light sources)
+        const headlightLightL = new THREE.SpotLight(0xFFFFCC, 1, 10, Math.PI / 4);
+        headlightLightL.position.copy(headlightL.position);
+        headlightLightL.target.position.set(headlightL.position.x + 5, 0, headlightL.position.z);
+        this.car.add(headlightLightL);
+        this.car.add(headlightLightL.target);
+        
+        const headlightLightR = new THREE.SpotLight(0xFFFFCC, 1, 10, Math.PI / 4);
+        headlightLightR.position.copy(headlightR.position);
+        headlightLightR.target.position.set(headlightR.position.x + 5, 0, headlightR.position.z);
+        this.car.add(headlightLightR);
+        this.car.add(headlightLightR.target);
+        
+        // Add car to scene
+        this.car.position.z = 2;
+        this.scene.add(this.car);
+        
+        // Store wheel references for animation
+        this.wheels = [wheelFL, wheelFR, wheelRL, wheelRR];
+      }
+      
+      createHouses() {
+        this.houses = [];
+        
+        const houseData = [
+          { position: 20, title: "About Me", color: 0x4285F4, content: "I'm a creative developer with passion for interactive 3D web experiences." },
+          { position: 60, title: "Projects", color: 0x34A853, content: "Check out my latest work in Three.js, WebGL, and interactive design." },
+          { position: 100, title: "Skills", color: 0xFBBC05, content: "Expertise in React, Three.js, WebGL, and creative coding." },
+          { position: 140, title: "Contact", color: 0xEA4335, content: "Get in touch to discuss your next 3D web project!" }
+        ];
+        
+        houseData.forEach((data, index) => {
+          const house = this.createHouse(data.position, data.title, data.color, data.content);
+          this.houses.push({
+            mesh: house,
+            position: data.position,
+            title: data.title,
+            content: data.content,
+            id: index
+          });
+        });
+      }
+      
+      createHouse(position, title, color, content) {
+        const house = new THREE.Group();
+        
+        // Main house body
+        const bodyGeometry = new THREE.BoxGeometry(5, 3, 4);
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.7,
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.y = 1.5;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        house.add(body);
+        
+        // Roof
+        const roofGeometry = new THREE.ConeGeometry(3.5, 2, 4);
+        const roofMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8B4513,
+          roughness: 0.8,
+        });
+        const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+        roof.position.y = 4;
+        roof.rotation.y = Math.PI / 4;
+        roof.castShadow = true;
+        house.add(roof);
+        
+        // Door
+        const doorGeometry = new THREE.PlaneGeometry(1, 2);
+        const doorMaterial = new THREE.MeshStandardMaterial({
+          color: 0x8B4513,
+          roughness: 0.9,
+          side: THREE.DoubleSide,
+        });
+        const door = new THREE.Mesh(doorGeometry, doorMaterial);
+        door.position.set(0, 1, 2.01);
+        house.add(door);
+        
+        // Windows
+        const windowGeometry = new THREE.PlaneGeometry(1, 1);
+        const windowMaterial = new THREE.MeshStandardMaterial({
+          color: 0xADD8E6,
+          roughness: 0.3,
+          metalness: 0.5,
+          side: THREE.DoubleSide,
+        });
+        
+        // Left window
+        const windowLeft = new THREE.Mesh(windowGeometry, windowMaterial);
+        windowLeft.position.set(-1.5, 1.8, 2.01);
+        house.add(windowLeft);
+        
+        // Right window
+        const windowRight = new THREE.Mesh(windowGeometry, windowMaterial);
+        windowRight.position.set(1.5, 1.8, 2.01);
+        house.add(windowRight);
+        
+        // Create text for house title (using a simple approach)
+        const titleSign = new THREE.Group();
+        
+        // Sign board
+        const signGeometry = new THREE.BoxGeometry(3, 0.8, 0.1);
+        const signMaterial = new THREE.MeshStandardMaterial({
+          color: 0xFFFFFF,
+        });
+        const sign = new THREE.Mesh(signGeometry, signMaterial);
+        titleSign.add(sign);
+        
+        // Sign position
+        titleSign.position.set(0, 3.5, 2.5);
+        house.add(titleSign);
+        
+        // Position the house
+        house.position.set(position, 0, -10);
+        house.rotation.y = -Math.PI / 2; // Face the road
+        
+        // Add to scene
+        this.scene.add(house);
+        
+        return house;
+      }
+      
+      setupControls() {
+        // Keyboard controls
+        this.keys = {};
+        
+        window.addEventListener('keydown', (e) => {
+          this.keys[e.key] = true;
+        });
+        
+        window.addEventListener('keyup', (e) => {
+          this.keys[e.key] = false;
+        });
+        
+        // Mobile controls
+        const leftButton = document.getElementById('left-button');
+        const rightButton = document.getElementById('right-button');
+        
+        // Touch events for left button
+        leftButton.addEventListener('touchstart', () => {
+          this.keys['ArrowLeft'] = true;
+        });
+        leftButton.addEventListener('touchend', () => {
+          this.keys['ArrowLeft'] = false;
+        });
+        
+        // Touch events for right button
+        rightButton.addEventListener('touchstart', () => {
+          this.keys['ArrowRight'] = true;
+        });
+        rightButton.addEventListener('touchend', () => {
+          this.keys['ArrowRight'] = false;
+        });
+        
+        // Mouse events for buttons (for desktop testing)
+        leftButton.addEventListener('mousedown', () => {
+          this.keys['ArrowLeft'] = true;
+        });
+        leftButton.addEventListener('mouseup', () => {
+          this.keys['ArrowLeft'] = false;
+        });
+        rightButton.addEventListener('mousedown', () => {
+          this.keys['ArrowRight'] = true;
+        });
+        rightButton.addEventListener('mouseup', () => {
+          this.keys['ArrowRight'] = false;
+        });
+      }
+      
+      updateCarPosition() {
+        // Apply acceleration based on input
+        if (this.keys['ArrowRight']) {
+          this.acceleration = 0.01;
+        } else if (this.keys['ArrowLeft']) {
+          this.acceleration = -0.01;
+        } else {
+          this.acceleration = 0;
+        }
+        
+        // Update speed with acceleration and friction
+        this.speed += this.acceleration;
+        this.speed *= this.friction;
+        
+        // Clamp speed
+        if (this.speed > this.maxSpeed) this.speed = this.maxSpeed;
+        if (this.speed < -this.maxSpeed) this.speed = -this.maxSpeed;
+        
+        // Update position
+        this.position += this.speed;
+        
+        // Rotate wheels based on speed
+        this.wheels.forEach(wheel => {
+          wheel.rotation.x -= this.speed * 3;
+        });
+        
+        // Check for houses near the car
+        const nearestHouse = this.findNearestHouse();
+        
+        if (nearestHouse) {
+          if (this.activeHouse !== nearestHouse.id) {
+            this.activeHouse = nearestHouse.id;
+            this.houseZoomLevel = 0;
+          }
+          
+          // Increase zoom level when near a house
+          this.houseZoomLevel = Math.min(1, this.houseZoomLevel + 0.02);
+          
+          // Move camera to focus on house
+          const targetHouse = nearestHouse.mesh;
+          
+          // Lerp camera position and target
+          this.camera.position.lerp(
+            new THREE.Vector3(
+              this.car.position.x - 3,
+              this.car.position.y + 1 + this.houseZoomLevel * 2,
+              this.car.position.z - 2 - this.houseZoomLevel * 4
+            ),
+            0.05
+          );
+          
+          this.camera.lookAt(
+            this.car.position.x + this.houseZoomLevel * (targetHouse.position.x - this.car.position.x),
+            this.car.position.y + this.houseZoomLevel * (targetHouse.position.y + 2 - this.car.position.y),
+            this.car.position.z + this.houseZoomLevel * (targetHouse.position.z - this.car.position.z)
+          );
+          
+          // Display house info
+          this.updateHouseInfo(nearestHouse);
+        } else {
+          this.activeHouse = null;
+          this.houseZoomLevel = Math.max(0, this.houseZoomLevel - 0.02);
+          
+          // Reset camera to follow car
+          this.camera.position.lerp(
+            new THREE.Vector3(
+              this.car.position.x - 3,
+              this.car.position.y + 2,
+              this.car.position.z + 3
+            ),
+            0.05
+          );
+          
+          this.camera.lookAt(this.car.position);
+          
+          // Hide house info
+          this.hideHouseInfo();
+        }
+        
+        // Update world position (move world, not car)
+        this.updateWorldPosition();
+      }
+      
+      updateWorldPosition() {
+        // Move houses and road markings to simulate car movement
+        this.houses.forEach(house => {
+          house.mesh.position.x = house.position - this.position;
+        });
+        
+        this.roadMarkings.forEach((marking, index) => {
+          marking.position.x = (index * 5 - 500) - (this.position % 5);
+        });
+      }
+      
+      findNearestHouse() {
+        let nearest = null;
+        let minDistance = 10;
+        
+        this.houses.forEach(house => {
+          const distance = Math.abs(house.position - this.position);
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearest = house;
+          }
+        });
+        
+        return minDistance < 5 ? nearest : null;
+      }
+      
+      updateHouseInfo(house) {
+        let infoElement = document.getElementById('house-info');
+        if (!infoElement) {
+          infoElement = document.createElement('div');
+          infoElement.id = 'house-info';
+          document.body.appendChild(infoElement);
+        }
+        
+        infoElement.innerHTML = `
+          <h2 style="margin-top: 0; color: #${house.mesh.children[0].material.color.getHexString()}">${house.title}</h2>
+          <p>${house.content}</p>
+        `;
+        
+        infoElement.style.opacity = this.houseZoomLevel.toString();
+      }
+      
+      hideHouseInfo() {
+        const infoElement = document.getElementById('house-info');
+        if (infoElement) {
+          infoElement.style.opacity = this.houseZoomLevel.toString();
+        }
+      }
+      
+      addInstructions() {
+        const instructionsElement = document.createElement('div');
+        instructionsElement.className = 'info-panel';
+        
+        instructionsElement.innerHTML = `
+          <p style="margin: 5px 0;">Use <strong>Left Arrow</strong> and <strong>Right Arrow</strong> to drive the car</p>
+          <p style="margin: 5px 0;">Drive close to houses to explore portfolio sections</p>
+        `;
+        
+        document.body.appendChild(instructionsElement);
+        
+        // Add speed indicator
+        const speedElement = document.createElement('div');
+        speedElement.id = 'speed-indicator';
+        document.body.appendChild(speedElement);
+      }
+      
+      updateSpeedIndicator() {
+        const speedElement = document.getElementById('speed-indicator');
+        if (speedElement) {
+          const speedKmh = Math.abs(this.speed) * 100;
+          speedElement.innerHTML = `Speed: ${speedKmh.toFixed(1)} km/h`;
+        }
+      }
+      
+      onWindowResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      
+      animate() {
+        requestAnimationFrame(() => this.animate());
+        
+        // Update car position
+        this.updateCarPosition();
+        
+        // Update speed indicator
+        this.updateSpeedIndicator();
+        
+        // Render scene
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    // Initialize when the DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      // Detect if WebGL is available
+      if (!THREE.WebGLRenderer) {
+        document.getElementById('loading-screen').innerHTML = '<h1>WebGL is not supported by your browser</h1><p>Please use a modern browser with WebGL support</p>';
+        return;
+      }
+      
+      const app = new PortfolioWorld();
+    });
+  </script>
+</body>
+</html>
